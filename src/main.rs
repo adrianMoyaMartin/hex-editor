@@ -1,6 +1,6 @@
 use core::time;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufReader, BufWriter, Read, Write} ;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::thread::sleep;
 use std::time::Instant;
@@ -21,27 +21,23 @@ const ENDING: &str = ".txt";
 fn main() {
     let _cleanup = Cleanup;
     
-    let file_to_read = File::open(Path::new(&("to-read/to-read".to_owned()+&ENDING)))
-        .expect("Failed opening file");
-    let buf = BufReader::new(file_to_read);
+    let path_to_be_read = "to-read/to-read".to_owned()+&ENDING;
+    let path_to_be_read = Path::new(&path_to_be_read);
+    let file_bytes = fs::read(path_to_be_read).expect("failed to read file in preparation of hex conversion");
 
     let t = Instant::now();
-    
-    let mut file_bytes: Vec<u8> = vec![];
-    for line in buf.bytes() {
-        let byte = line.expect("failed to read line");
-        file_bytes.push(byte);
-    }
+
     let hex_array: Vec<String> = file_bytes.iter().map(|byte| format!("{:02X}", byte)).collect();
-    let hex_to_write = hex_array.join(" ");
-
     let path_to_hex_container = Path::new("hex.txt");
-    let hex_container = File::create_new(path_to_hex_container).expect("couldnt create file with hex values");
-    let mut hex_file_writer = BufWriter::new(&hex_container);
+    {
+        let hex_to_write = hex_array.join(" ");
+        let hex_container = File::create_new(path_to_hex_container).expect("couldnt create file with hex values");
+        let mut hex_file_writer = BufWriter::new(&hex_container);
 
-    hex_file_writer.write_all(hex_to_write.as_bytes()).expect("failed to write bytes");
-    hex_file_writer.flush().expect("failed while writing hex to file");
-
+        hex_file_writer.write_all(hex_to_write.as_bytes()).expect("failed to write bytes");
+        hex_file_writer.flush().expect("failed while writing hex to file");
+        
+    }
     println!("time taken to retrieve and place Hex: {} miliseconds", t.elapsed().as_millis());
 
     loop {
