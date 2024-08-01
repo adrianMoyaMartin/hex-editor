@@ -1,32 +1,48 @@
 use core::time;
-use std::{fs::{self, File, OpenOptions}, io::{BufReader, BufWriter, Read, Write}, path::Path, thread::sleep};
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufReader, BufWriter, Read, Write} ;
+use std::path::Path;
+use std::thread::sleep;
+use std::time::Instant;
 use std::num::ParseIntError;
+struct Cleanup;
+impl Cleanup {
+    fn cleanup_function() {
+        destroy();
+    }
+}
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        Self::cleanup_function();
+    }
+}
 
 const ENDING: &str = ".txt";
-
 fn main() {
+    let _cleanup = Cleanup;
+    
     let file_to_read = File::open(Path::new(&("to-read/to-read".to_owned()+&ENDING)))
         .expect("Failed opening file");
     let buf = BufReader::new(file_to_read);
+
+    let t = Instant::now();
     
     let mut file_bytes: Vec<u8> = vec![];
     for line in buf.bytes() {
         let byte = line.expect("failed to read line");
         file_bytes.push(byte);
     }
-
-    let hex_array = bytes_to_hex(file_bytes);
+    let hex_array: Vec<String> = file_bytes.iter().map(|byte| format!("{:02X}", byte)).collect();
+    let hex_to_write = hex_array.join(" ");
 
     let path_to_hex_container = Path::new("hex.txt");
     let hex_container = File::create_new(path_to_hex_container).expect("couldnt create file with hex values");
     let mut hex_file_writer = BufWriter::new(&hex_container);
 
-    for hex in &hex_array {
-        let hex_to_write = " ".to_owned()+&hex;
-        hex_file_writer.write_all(hex_to_write.as_bytes()).expect("failed to write hex to file");
-    }
-    
+    hex_file_writer.write_all(hex_to_write.as_bytes()).expect("failed to write bytes");
     hex_file_writer.flush().expect("failed while writing hex to file");
+
+    println!("time taken to retrieve and place Hex: {} miliseconds", t.elapsed().as_millis());
 
     loop {
         let hex_file_contents = fs::read_to_string(path_to_hex_container).expect("failed to read file");
@@ -35,16 +51,15 @@ fn main() {
         .collect();
 
         if &separate_hex_values != &hex_array {
-            give_results_on_save(hex_file_contents, path_to_hex_container);
+            give_results_on_save(hex_file_contents);
             break;
         }
         sleep(time::Duration::from_millis(100));
     }
-    destroy(path_to_hex_container);
 }
 
-fn give_results_on_save(hex_file_contents: String, path_to_hex_container: &Path ) {
-    let bytes_to_write = hex_to_bytes(&hex_file_contents, path_to_hex_container).expect("failed turning hex to u8");
+fn give_results_on_save(hex_file_contents: String) {
+    let bytes_to_write = hex_to_bytes(&hex_file_contents).expect("failed turning hex to u8");
     let mut result_file = OpenOptions::new().read(true)
     .write(true)
     .create(true)
@@ -55,18 +70,10 @@ fn give_results_on_save(hex_file_contents: String, path_to_hex_container: &Path 
     result_file.flush().expect("failed while writing to file");
 }
 
-fn bytes_to_hex(bytes: Vec<u8>) -> Vec<String> {
-    let hex_array = bytes.iter()
-    .map(|byte| format!("{:02X}", byte))
-    .collect();
-    hex_array
-}
-
-fn hex_to_bytes(hex: &str, path_to_hex_container: &Path) -> Result<Vec<u8>, ParseIntError> {
+fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, ParseIntError> {
     let hex = hex.trim().replace(" ", "");
 
     let hex = if hex.len() % 2 == 0 { hex } else { 
-        destroy(path_to_hex_container);
         panic!("INVALID HEX INSERTED")
     };
 
@@ -75,6 +82,7 @@ fn hex_to_bytes(hex: &str, path_to_hex_container: &Path) -> Result<Vec<u8>, Pars
         .map(|i| u8::from_str_radix(&hex[i..i+2], 16))
         .collect()
 }
-fn destroy(path_to_hex_container: &Path) {
+fn destroy() {
+    let path_to_hex_container = Path::new("hex.txt");
     fs::remove_file(path_to_hex_container).expect("failed to delete file");
 }
