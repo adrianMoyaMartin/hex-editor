@@ -1,10 +1,11 @@
-use core::time;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use std::thread::sleep;
+use std::sync::mpsc::channel;
 use std::time::Instant;
 use std::num::ParseIntError;
+use notify::Config;
+use notify::{event::Event, EventKind, RecommendedWatcher, Watcher, RecursiveMode};
 struct Cleanup;
 impl Cleanup {
     fn cleanup_function() {
@@ -21,9 +22,7 @@ const ENDING: &str = ".txt";
 fn main() {
     let _cleanup = Cleanup;
     
-    let path_to_be_read = "to-read/to-read".to_owned()+&ENDING;
-    let path_to_be_read = Path::new(&path_to_be_read);
-    let file_bytes = fs::read(path_to_be_read).expect("failed to read file in preparation of hex conversion");
+    let file_bytes = fs::read(Path::new(&("to-read/to-read".to_owned()+&ENDING))).expect("failed to read file in preparation of hex conversion");
 
     let t = Instant::now();
 
@@ -31,7 +30,13 @@ fn main() {
     let path_to_hex_container = Path::new("hex.txt");
     {
         let hex_to_write = hex_array.join(" ");
-        let hex_container = File::create_new(path_to_hex_container).expect("couldnt create file with hex values");
+        let hex_container = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(path_to_hex_container)
+            .expect("failed to open hex container file");
         let mut hex_file_writer = BufWriter::new(&hex_container);
 
         hex_file_writer.write_all(hex_to_write.as_bytes()).expect("failed to write bytes");
@@ -40,17 +45,31 @@ fn main() {
     }
     println!("time taken to retrieve and place Hex: {} miliseconds", t.elapsed().as_millis());
 
-    loop {
-        let hex_file_contents = fs::read_to_string(path_to_hex_container).expect("failed to read file");
-        let separate_hex_values: Vec<&str> = hex_file_contents.split_ascii_whitespace()
-        .into_iter()
-        .collect();
+    let (tx, rx) = channel();
+    let config = Config::default();
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, config).expect("failed to generate file watcher");
+    watcher.watch(path_to_hex_container, RecursiveMode::NonRecursive).expect("failed to watch file");
 
-        if &separate_hex_values != &hex_array {
-            give_results_on_save(hex_file_contents);
-            break;
+    loop {
+        match rx.recv() {
+            Ok(event) => match event {
+                Ok(Event { kind: EventKind::Modify(_), paths, attrs: _ }) => {
+                    println!("File has been modified!");
+                    if let Some(path) = paths.first() {
+                        let hex_file_contents = fs::read_to_string(path).expect("failed to read file");
+                        let separate_hex_values: Vec<&str> = hex_file_contents.split_ascii_whitespace().collect();
+                        if separate_hex_values != hex_array {
+                        give_results_on_save(hex_file_contents);
+                        }
+                    }
+                }
+                Ok(Event { kind: EventKind::Remove(_), paths: _, attrs: _ }) => {
+                    println!("File has been removed by user");
+                }
+                _ => {}
+            },
+            Err(e) => eprintln!("Error watching file: {:?}", e),
         }
-        sleep(time::Duration::from_millis(100));
     }
 }
 
